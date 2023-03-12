@@ -1,3 +1,2 @@
-![image](G:\Github_Desktop_Repo\CBAM-CrossAttention\img\architecture.jpg)
+![image](https://github.com/wuyiulin/CBAM-CrossAttention/blob/master/img/architecture.jpg)
 
-# 
