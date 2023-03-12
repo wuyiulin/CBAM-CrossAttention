@@ -41,13 +41,13 @@ i presume single layer linear is too simple to work in complicated task.
 
 
 ## Overall Architecture
-![architecture](img\architecture.jpg)
+![architecture](img/architecture.jpg)
 
 ## Channel Attention
-![channel](img\channel.jpg)
+![channel](img/channel.jpg)
 
 ## Spatial Attention
-![spatial](img\spatial.jpg)
+![spatial](img/spatial.jpg)
 
 # Reference
 
