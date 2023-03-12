@@ -2,6 +2,7 @@ import torch
 import math
 import torch.nn as nn
 import torch.nn.functional as F
+import pdb
 
 class BasicConv(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
@@ -34,17 +35,17 @@ class ChannelGate(nn.Module):
             nn.Linear(gate_channels // reduction_ratio, gate_channels)
             )
         self.pool_types = pool_types
-    def forward(self, x):
+    def forward(self, x, y):
         channel_att_sum = None
         for pool_type in self.pool_types:
             if pool_type=='avg':
-                avg_pool = F.avg_pool2d( x, (x.size(2), x.size(3)), stride=(x.size(2), x.size(3)))
+                avg_pool = F.avg_pool2d( x, (x.size(2), x.size(3)))
                 channel_att_raw = self.mlp( avg_pool )
             elif pool_type=='max':
-                max_pool = F.max_pool2d( x, (x.size(2), x.size(3)), stride=(x.size(2), x.size(3)))
+                max_pool = F.max_pool2d( x, (x.size(2), x.size(3)))
                 channel_att_raw = self.mlp( max_pool )
             elif pool_type=='lp':
-                lp_pool = F.lp_pool2d( x, 2, (x.size(2), x.size(3)), stride=(x.size(2), x.size(3)))
+                lp_pool = F.lp_poold( x, 2, (x.size(2), x.size(3)), stride=(x.size(2), x.size(3)))
                 channel_att_raw = self.mlp( lp_pool )
             elif pool_type=='lse':
                 # LSE pool only
@@ -56,8 +57,8 @@ class ChannelGate(nn.Module):
             else:
                 channel_att_sum = channel_att_sum + channel_att_raw
 
-        scale = F.sigmoid( channel_att_sum ).unsqueeze(2).unsqueeze(3).expand_as(x)
-        return x * scale
+        scale = torch.sigmoid( channel_att_sum ).unsqueeze(2).unsqueeze(3).expand_as(y)
+        return y * scale
 
 def logsumexp_2d(tensor):
     tensor_flatten = tensor.view(tensor.size(0), tensor.size(1), -1)
@@ -70,26 +71,34 @@ class ChannelPool(nn.Module):
         return torch.cat( (torch.max(x,1)[0].unsqueeze(1), torch.mean(x,1).unsqueeze(1)), dim=1 )
 
 class SpatialGate(nn.Module):
-    def __init__(self):
+    def __init__(self, KQ, V, reduction_ratio):
         super(SpatialGate, self).__init__()
         kernel_size = 7
         self.compress = ChannelPool()
         self.spatial = BasicConv(2, 1, kernel_size, stride=1, padding=(kernel_size-1) // 2, relu=False)
-    def forward(self, x):
+        self.mlp = nn.Sequential(
+            nn.Linear(KQ, KQ // reduction_ratio),
+            nn.ReLU(),
+            nn.Linear(KQ // reduction_ratio, V)
+            )
+    def forward(self, x, y):
         x_compress = self.compress(x)
         x_out = self.spatial(x_compress)
-        scale = F.sigmoid(x_out) # broadcasting
-        return x * scale
+        scale = self.mlp(x_out)
+        scale = torch.sigmoid(scale) # broadcasting
+        return y * scale
 
-class CBAM(nn.Module):
-    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg', 'max'], no_spatial=False):
-        super(CBAM, self).__init__()
+class CA(nn.Module):
+    def __init__(self, gate_channels, reduction_ratio=16, pool_types=['avg', 'max'], no_spatial=False, KQ=None, V=None):
+        super(CA, self).__init__()
         self.ChannelGate = ChannelGate(gate_channels, reduction_ratio, pool_types)
         self.no_spatial=no_spatial
+        self.KQ = KQ
+        self.V = V
         if not no_spatial:
-            self.SpatialGate = SpatialGate()
-    def forward(self, x):
-        x_out = self.ChannelGate(x)
+            self.SpatialGate = SpatialGate(self.KQ, self.V, reduction_ratio= reduction_ratio//8)
+    def forward(self, kq, v):
+        x_out = self.ChannelGate(kq, v)
         if not self.no_spatial:
-            x_out = self.SpatialGate(x_out)
+            x_out = self.SpatialGate(kq, x_out)
         return x_out
